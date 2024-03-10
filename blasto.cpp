@@ -12,6 +12,7 @@
 
 // Custom screen address
 char * const Screen = (char *)0xc000;
+char * const Screen2 = (char *)0xc400;
 
 // Custom screen address
 char * const Sprites = (char *)0xd000;
@@ -22,18 +23,16 @@ char * const Charset = (char *)0xc800;
 // Color mem address
 char * const Color = (char *)0xd800;
 
-// The charpad resource in lz compression, without the need
-// for binary export
-const char BackgroundFont[] = {
-	#embed ctm_chars lzo "playfield.ctm"
-};
-
 const char BackgroundTiles[] = {
 	#embed ctm_map8 "playfield.ctm"
 };
 
 const char SpriteImages[] = {
 	#embed spd_sprites lzo "tank.spd"
+};
+
+const char NumbersFont[] = {
+	#embed ctm_chars lzo "numbers.ctm"
 };
 
 char BackgroundMap[40 * 40];
@@ -139,6 +138,16 @@ const signed char sintab16[16] = {
 	#for(i, 16) (char)floor(sin(i * PI / 8) * 16.0 + 0.5),
 };
 
+const signed char sintab14[16] = {
+	#for(i, 16) (char)floor(sin(i * PI / 8) * 14.0 + 0.5),
+};
+
+enum PlayerID
+{
+	PLAYER_0,
+	PLAYER_1
+};
+
 __striped struct Player
 {
 	unsigned	px, py;
@@ -151,10 +160,25 @@ __striped struct Player
 	char		shot, explosion, invulnerable;
 	signed char	jx, jy;
 	bool		jb;
+	bool		flag, home;
+	unsigned	dscore;
 
 }	players[2];
 
-void player_init(char pi)
+char	score[2][6];
+
+void stats_putchar(PlayerID pi, char x, char y, char ch)
+{
+	char * dp = Screen2 + 40 * 21 + 80 * y + 2 * x;
+	if (pi)
+		dp += 22;
+	dp[ 0] = 128 + 4 * ch;
+	dp[ 1] = 129 + 4 * ch;
+	dp[40] = 130 + 4 * ch;
+	dp[41] = 131 + 4 * ch;
+}
+
+void player_init(PlayerID pi)
 {
 	auto & p = players[pi];
 	p.px = p.hqx << 4;
@@ -179,25 +203,29 @@ void player_init(char pi)
 	p.shot = 0;
 	p.explosion = 0;
 	p.invulnerable = 100;
+	p.flag = false;
+	p.home = true;
 
 	font_expand(pi * 128, p.vx & 7, p.vy & 7);
 	map_expand(pi, p.vx >> 3, p.vy >> 3);
 }
 
-void player_init_flag(char pi, unsigned x, unsigned y)
+void player_init_flag(PlayerID pi)
 {
-	players[pi].flagx = x;
-	players[pi].flagy = y;
+	auto & p = players[pi];
+
+	p.flagx = p.hqx + 32 - 64 * pi;
+	p.flagy = p.hqy;
 }
 
-void player_init_hq(char pi, unsigned x, unsigned y)
+void player_init_hq(PlayerID pi, unsigned x, unsigned y)
 {
 	players[pi].hqx = x;
 	players[pi].hqy = y;
 }
 
 
-void player_check(char pi)
+void player_check(PlayerID pi)
 {
 	auto & p = players[pi];
 	auto & e = players[1 - pi];
@@ -214,7 +242,7 @@ void player_check(char pi)
 			e.shot = 0;		
 	}
 
-	if (!p.explosion && e.shot)
+	if (!p.explosion && !p.invulnerable && e.shot)
 	{
 
 		unsigned	dx = e.shotx - 48 - p.px;
@@ -224,18 +252,86 @@ void player_check(char pi)
 		{
 			p.explosion = 16;
 			e.shot = 0;
+			e.dscore += 200;
+		}
+	}
+
+	if (!p.explosion && !p.flag)
+	{
+		if ((p.px >> 4) + 16 - e.flagx < 32 && (p.py >> 4) + 16 - e.flagy < 32)
+		{
+			p.flag = true;
+			stats_putchar(pi, 8, 0, 11);
 		}
 	}
 }
 
-static inline char BackTile(unsigned x, unsigned y)
+static inline char BackTile(int x, int y)
 {
-	return BackgroundTiles[((y + (11 - 50)  * 16) >> 7) * 40 + ((x + (12 - 24) * 16) >> 7)];
+	signed char cx = (x + (12 - 24) * 16) >> 7;
+	signed char cy = (y + (11 - 50) * 16) >> 7;
+
+	if (cx < 0 || cy < 0 || cx >= 40 || cy >= 40)
+		return 2;
+	else
+		return BackgroundTiles[cy * 40 + cx];
 }
 
-void player_ai(char pi)
+char uatan(char tx, char ty)
+{
+	if (ty < tx)
+	{
+		if (5 * ty < tx)
+			return 0;
+		else if (8 * ty < 5 * tx)
+			return 1;
+		else
+			return 2;
+	}
+	else
+	{
+		if (5 * tx < ty)
+			return 4;
+		else if (8 * tx < 5 * ty)
+			return 3;
+		else
+			return 2;		
+	}
+}
+
+char iatan(signed char tx, signed char ty)
+{
+	if (tx < 0)
+	{
+		if (ty < 0)
+			return 8 + uatan(-tx, -ty);
+		else
+			return 8 - uatan(-tx, ty);				
+	}
+	else if (ty < 0)
+	{
+		return (16 - uatan(tx, -ty)) & 15;
+	}
+	else
+		return uatan(tx, ty);
+}
+
+char idist(signed char tx, signed char ty)
+{
+	if (tx < 0)
+		tx = -tx;
+	if (ty < 0)
+		ty = -ty;
+	if (tx > ty)
+		return tx;
+	else
+		return ty;
+}
+
+void player_ai(PlayerID pi)
 {
 	auto & p = players[pi];
+	auto & e = players[1 - pi];
 
 	char dir = p.dir >> 2;
 
@@ -260,48 +356,158 @@ void player_ai(char pi)
 	char ch3 = BackTile(x3, y3);
 	char ch7 = BackTile(x7, y7);
 
-	if (!(p.dir & 15))
-		p.jx = 0;
+	Color[40 * 20 + 20 * pi + 0] = ch0;
+	Color[40 * 20 + 20 * pi + 1] = ch1;
+	Color[40 * 20 + 20 * pi + 2] = ch2;
+	Color[40 * 20 + 20 * pi + 3] = ch3;
+	Color[40 * 20 + 20 * pi + 4] = ch7;
 
-	if (ch1)
+	signed char	tx, ty;
+
+	if (p.flag)
 	{
-		if (ch3)
-			p.jx = -1;
-		else if (ch7)
-			p.jx = 1;
-		else if (!p.jx)
-			p.jx = (rand() & 2) - 1;
+		tx = p.hqx >> 3;
+		ty = p.hqy >> 3;
 	}
-	else if (!p.jx)
+	else
 	{
-		if (ch2 && !ch7)
-			p.jx = -1;
-		else if (ch0 && !ch3)
-			p.jx = 1;
-		else if (!(rand() & 255))
+		tx = e.flagx >> 3;
+		ty = e.flagy >> 3;
+	}
+
+	tx -= p.px >> 7;
+	ty -= p.py >> 7;
+
+	signed char etx = (e.px - p.px + 64) >> 7;
+	signed char ety = (e.py - p.py + 64) >> 7;
+
+	char tdist = idist(tx, ty);
+	char edist = idist(etx, ety);
+
+	Screen2[40 * 24 + 20 * pi + 3] = tdist + 0xb0;
+	Screen2[40 * 24 + 20 * pi + 4] = edist + 0xb0;
+
+	if (tdist > (p.flag ? 20 : 4))
+	{
+		if (e.flag || edist < 4)
 		{
-			if (!ch7)
-				p.jx = -1;
-			else if (!ch3)
-				p.jx = 1;
+			tx = etx;
+			ty = ety;
+			tdist = edist;
 		}
 	}
 
+	char adir = iatan(ty, tx) ^ 8;
+	char edir = iatan(ety, etx) ^ 8;
+
+	char tdiff = (adir - dir) & 15;
+
+	Screen2[40 * 24 + 20 * pi + 0] = dir + 0xb0;
+	Screen2[40 * 24 + 20 * pi + 1] = adir + 0xb0;
+	Screen2[40 * 24 + 20 * pi + 2] = tdiff + 0xb0;
+
+	if (!(p.dir & 7))
+		p.jx = 0;
+
+	if (ch0 && ch2)
+	{
+		if (p.jx == 0)
+		{
+			if (!ch7 && (tdiff > 0 && tdiff < 8))
+				p.jx = -1;
+			else if (!ch3 && tdiff > 8)
+				p.jx = 1;
+			else if (ch3)
+				p.jx = -1;
+			else
+				p.jx = 1;
+		}
+	}
+	else if (ch0)
+		p.jx = 1;
+	else if (ch2)
+		p.jx = -1;
+	else if (!ch0 && !ch7 && (tdiff > 1 && tdiff < 8))
+		p.jx = -1;
+	else if (!ch2 && !ch3 && (tdiff > 8 && tdiff < 15))
+		p.jx = 1;
+
 	p.jy = -1;
+	if (p.jx == 0 && !(rand() & 31) && tdiff > 4 && tdiff < 12)
+	{
+		if (tdiff < 8)
+			p.jx = -1;
+		else
+			p.jx = 1;
+		p.jy = 0;
+	}
+
 	p.jb = false;
+	if (edist < 8 && edir == dir)
+		p.jb = true;
+
 }
 
-void player_control(char pi)
+void player_control(PlayerID pi)
 {
 	auto & p = players[pi];
 
 	joy_poll(pi);
-	p.jx = joyx[pi];
-	p.jy = joyy[pi];
+
+	char dir = p.dir;
+	char tdir = dir;
+
+	if (joyx[pi] > 0)
+	{
+		if (joyy[pi] < 0)
+			tdir = 14 * 4;
+		else if (joyy[pi] == 0)
+			tdir = 12 * 4;
+		else
+			tdir = 10 * 4;
+	}
+	else if (joyx[pi] == 0)
+	{
+		if (joyy[pi] < 0)
+			tdir = 0 * 4;
+		else if (joyy[pi] > 0)
+			tdir = 8 * 4;
+	}
+	else
+	{
+		if (joyy[pi] < 0)
+			tdir = 2 * 4;
+		else if (joyy[pi] == 0)
+			tdir = 4 * 4;
+		else
+			tdir = 6 * 4;
+	}
+
+	tdir = (tdir - dir) & 63;
+
+	if (tdir > 0 && tdir < 32)
+		p.jx = -1;
+	else if (tdir > 32)
+		p.jx = 1;
+	else
+		p.jx = 0;
+
+	if (joyx[pi] || joyy[pi])
+	{
+		if (tdir <= 4 || tdir >= 60)
+			p.jy = -1;
+		else if (tdir >= 28 && tdir <= 36)
+			p.jy = 1;
+		else
+			p.jy = 0;
+	}
+	else
+		p.jy = 0;
+
 	p.jb = joyb[pi];
 }
 
-void player_move(char pi)
+void player_move(PlayerID pi)
 {
 	auto & p = players[pi];
 
@@ -309,10 +515,17 @@ void player_move(char pi)
 	{
 		p.explosion--;
 
-		vspr_image(pi, 95 - (p.explosion >> 1));
-		vspr_image(pi + 8, 95 - (p.explosion >> 1));
 		if (p.explosion == 0)
+		{
+			if (p.flag)
+			{
+				p.flag = false;
+				players[1 - pi].flagx = p.px >> 4;
+				players[1 - pi].flagy = p.py >> 4;
+				stats_putchar(pi, 8, 0, 0);
+			}
 			player_init(pi);
+		}
 	}
 	else
 	{
@@ -320,37 +533,34 @@ void player_move(char pi)
 
 		char dir = p.dir >> 2;
 
-		if (p.invulnerable)
+		if (p.invulnerable && !p.home)
 			p.invulnerable--;
-
-		if (p.invulnerable & 1)
-		{
-			vspr_image(pi    , 87);
-			vspr_image(pi + 8, 87);
-		}
-		else
-		{
-			vspr_image(pi    , 64 + dir);
-			vspr_image(pi + 8, 64 + dir);
-		}
 
 		signed char dx = 0, dy = 0;
 		if (p.jy > 0)
 		{
-			dx = sintab16[dir];
-			dy = sintab16[(dir + 4) & 15];
+			dx = sintab14[dir];
+			dy = sintab14[(dir + 4) & 15];
 		}
 		else if (p.jy < 0) 
 		{
-			dx = -sintab16[dir];
-			dy = -sintab16[(dir + 4) & 15];
+			if (p.flag)
+			{
+				dx = -sintab14[dir];
+				dy = -sintab14[(dir + 4) & 15];
+			}
+			else
+			{
+				dx = -sintab16[dir];
+				dy = -sintab16[(dir + 4) & 15];
+			}
 		}
 
 		unsigned	tx = p.px + dx;
 		unsigned	ty = p.py + dy;
 
 		unsigned cx = (tx - 20 * 16) >> 7;
-		unsigned cy = (ty - 48 * 16) >> 7;
+		unsigned cy = (ty - 46 * 16) >> 7;
 
 		if (dx < 0)
 		{
@@ -388,10 +598,24 @@ void player_move(char pi)
 			p.shotx = p.px + 2 * p.shotvx + 160;
 			p.shoty = p.py + 2 * p.shotvy + 128;			
 		}
+
+		if ((p.px >> 4) + 16 - p.hqx < 32 && (p.py >> 4) + 16 - p.hqy < 32)
+		{
+			p.home = true;
+			if (p.flag)
+			{
+				p.flag = false;
+				p.dscore += 1000;
+				player_init_flag(1 - pi);
+				stats_putchar(pi, 8, 0, 0);
+			}
+		}
+		else
+			p.home = false;
 	}
 }
 
-void view_sprite(char pi, char vi, int sx, int sy)
+void view_sprite(PlayerID pi, char vi, int sx, int sy)
 {
 	if (sx > 0 && sy > 29 && sx < 168 && sy < 210)
 		vspr_move(pi * 8 + vi, sx  + 22 * 8 * pi, sy);
@@ -399,7 +623,7 @@ void view_sprite(char pi, char vi, int sx, int sy)
 		vspr_hide(pi * 8 + vi);
 }
 
-void view_move(char pi)
+void view_move(PlayerID pi, char phase)
 {
 	auto & p = players[pi];
 
@@ -408,6 +632,20 @@ void view_move(char pi)
 
 	view_sprite(pi, 0, (players[0].px >> 4) - p.vx, (players[0].py >> 4) - p.vy);
 	view_sprite(pi, 1, (players[1].px >> 4) - p.vx, (players[1].py >> 4) - p.vy);
+
+	if (players[0].explosion)
+		vspr_image(pi * 8    , 95 - (players[0].explosion >> 1));
+	else if (players[0].invulnerable && (phase & 2))
+		vspr_image(pi * 8    , 87);
+	else
+		vspr_image(pi * 8    , 64 + (players[0].dir >> 2));
+
+	if (players[1].explosion)
+		vspr_image(pi * 8 + 1, 95 - (players[1].explosion >> 1));
+	else if (players[1].invulnerable && (phase & 2))
+		vspr_image(pi * 8 + 1, 87);
+	else
+		vspr_image(pi * 8 + 1, 64 + (players[1].dir >> 2));
 
 	if ((players[0].px >> 4) + 16 - players[0].hqx < 32 && (players[0].py >> 4) + 16 - players[0].hqy < 32)
 		vspr_hide(pi * 8 + 2);
@@ -419,8 +657,15 @@ void view_move(char pi)
 	else
 		view_sprite(pi, 3, players[1].hqx - p.vx, players[1].hqy - p.vy);
 
-	view_sprite(pi, 4, players[0].flagx - p.vx, players[0].flagy - p.vy);
-	view_sprite(pi, 5, players[1].flagx - p.vx, players[1].flagy - p.vy);
+	if (players[1].flag)
+		vspr_hide(pi * 8 + 4);
+	else
+		view_sprite(pi, 4, players[0].flagx - p.vx, players[0].flagy - p.vy);
+
+	if (players[0].flag)
+		vspr_hide(pi * 8 + 5);
+	else
+		view_sprite(pi, 5, players[1].flagx - p.vx, players[1].flagy - p.vy);
 
 	if (players[0].shot)
 		view_sprite(pi, 6, (players[0].shotx >> 4) - p.vx, (players[0].shoty >> 4) - p.vy);
@@ -432,13 +677,20 @@ void view_move(char pi)
 		vspr_hide(pi * 8 + 7);
 }
 
-void view_redraw(char pi, char phase)
+void view_scroll(PlayerID pi, char phase)
+{
+	auto & p = players[pi];
+
+	if (p.dvx || p.dvy)
+		font_expand(pi * 128, p.vx & 7, p.vy & 7);
+}
+
+void view_redraw(PlayerID pi, char phase)
 {
 	auto & p = players[pi];
 
 	if (p.dvx || p.dvy)
 	{
-		font_expand(pi * 128, p.vx & 7, p.vy & 7);
 		if (phase == 0)
 			map_expand(pi, p.vx >> 3, p.vy >> 3);
 	}
@@ -476,6 +728,58 @@ void view_redraw(char pi, char phase)
 	}
 }
 
+void player_check_score(PlayerID pi, char phase)
+{	
+	auto & p = players[pi];
+
+	if (!p.explosion && !p.invulnerable)
+	{
+		if (p.flag && !(phase & 3))
+			p.dscore++;
+		else if (!(phase & 15))
+			p.dscore++;
+	}
+
+	if (p.dscore)
+	{
+		char	ci = 4;
+		if (p.dscore >= 1000)
+		{
+			score[pi][1]++;
+			p.dscore -= 1000;
+			ci = 1;
+		}
+		else if (p.dscore >= 100)
+		{
+			score[pi][2]++;
+			p.dscore -= 100;
+			ci = 2;
+		}
+		else if (p.dscore >= 10)
+		{
+			score[pi][3]++;
+			p.dscore -= 10;
+			ci = 3;
+		}
+		else
+		{
+			score[pi][4] += p.dscore;
+			p.dscore = 0;
+		}
+
+		while (score[pi][ci] > 9)
+		{
+			score[pi][ci] -= 10;
+			stats_putchar(pi, ci, 0, 1 + score[pi][ci]);
+			ci--;
+			score[pi][ci]++;
+		}
+		stats_putchar(pi, ci, 0, 1 + score[pi][ci]);
+	}
+}
+
+RIRQCode		rirqtop, rirqbottom;
+
 int main(void)
 {
 	cia_init();
@@ -487,13 +791,13 @@ int main(void)
 	// Swap in all RAM
 	mmap_set(MMAP_RAM);
 
-	oscar_expand_lzo(Charset, BackgroundFont);
+	oscar_expand_lzo(Charset + 1024, NumbersFont);
 	oscar_expand_lzo(Sprites, SpriteImages);
 
 	// Swap ROM back in
 	mmap_set(MMAP_NO_ROM);
 
-	memset(Screen, 15, 1000);
+	memset(Screen, 15, 40 * 21);
 	memset(Color, VCOL_MED_GREY, 1000);
 
 	for(char y=0; y<20; y++)
@@ -503,6 +807,13 @@ int main(void)
 	}
 
 	memset(Color + 40 * 20, VCOL_DARK_GREY, 40 * 5);
+	memset(Color + 40 * 21, VCOL_WHITE, 40 * 4);
+
+	memset(Screen2 + 40 * 20, 15, 40);
+	memset(Screen2 + 40 * 21, 128, 40 * 4);
+
+	for(char i=0; i<8; i++)
+		Screen2[0x3f8 + i] = 87;
 
 	// Background and border black
 	vic.color_border = VCOL_DARK_GREY;
@@ -537,25 +848,41 @@ int main(void)
 	vspr_set(14, 0, 0, 85, VCOL_YELLOW);
 	vspr_set(15, 0, 0, 85, VCOL_RED);
 
+	rirq_build(&rirqbottom, 2);
+	rirq_write(&rirqbottom, 0, &vic.memptr, 0x12);
+	rirq_write(&rirqbottom, 1, &vic.color_back, VCOL_DARK_GREY);
+	rirq_set(9, 54 + 20 * 8, &rirqbottom);
+
+	rirq_build(&rirqtop, 2);
+	rirq_write(&rirqtop, 0, &vic.memptr, 0x02);
+	rirq_write(&rirqtop, 1, &vic.color_back, VCOL_BLACK);
+	rirq_set(10, 40, &rirqtop);
+
 	vspr_sort();
 	vspr_update();
 	rirq_sort();
 
 	rirq_start();
 
-	player_init_hq(0, 32, 58);
-	player_init_hq(1, 304, 330);
-	player_init_flag(0, 64, 58);
-	player_init_flag(1, 272, 330);
+	player_init_hq(PLAYER_0, 32, 58);
+	player_init_hq(PLAYER_1, 304, 330);
+	player_init_flag(PLAYER_0);
+	player_init_flag(PLAYER_1);
+	player_init(PLAYER_0);
+	player_init(PLAYER_1);
 
-	player_init(0);
-	player_init(1);
+	for(char i=0; i<5; i++)
+	{
+		stats_putchar(PLAYER_0, i, 0, 1);
+		stats_putchar(PLAYER_1, i, 0, 1);
+		score[0][i] = score[1][i] = 0;
+	}
 
 	char	phase = 0;
 	while (true)
 	{
-		view_move(0);
-		view_move(1);
+		view_move(PLAYER_0, phase);
+		view_move(PLAYER_1, phase);
 
 		vspr_sort();
 
@@ -564,8 +891,13 @@ int main(void)
 		vspr_update();
 		rirq_sort();
 
-		view_redraw(0, phase & 7);
-		view_redraw(1, (phase + 4) & 7);
+//		vic.color_border++;
+		view_scroll(PLAYER_0, phase & 7);
+		view_scroll(PLAYER_1, (phase + 4) & 7);
+//		vic.color_border++;
+		view_redraw(PLAYER_0, phase & 7);
+		view_redraw(PLAYER_1, (phase + 4) & 7);
+//		vic.color_border = VCOL_DARK_GREY;
 
 		char flgani = 80 + ((phase >> 2) & 3); 
 
@@ -576,15 +908,20 @@ int main(void)
 
 		phase++;
 
-		player_check(0);
-		player_check(1);
+		player_check(PLAYER_0);
+		player_check(PLAYER_1);
 
+		player_control(PLAYER_0);
+//		player_control(PLAYER_1);
 
-		player_ai(0);
-		player_ai(1);
+//		player_ai(PLAYER_0);
+		player_ai(PLAYER_1);
 
-		player_move(0);
-		player_move(1);
+		player_move(PLAYER_0);
+		player_move(PLAYER_1);
+
+		player_check_score(PLAYER_0, phase);
+		player_check_score(PLAYER_1, phase);
 	}
 
 	return 0;
