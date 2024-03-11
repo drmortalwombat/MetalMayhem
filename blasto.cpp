@@ -9,6 +9,9 @@
 #include <oscar.h>
 #include <conio.h>
 #include <math.h>
+#include "levels.h"
+
+#define DEBUG_AI	0
 
 // Custom screen address
 char * const Screen = (char *)0xc000;
@@ -23,10 +26,6 @@ char * const Charset = (char *)0xc800;
 // Color mem address
 char * const Color = (char *)0xd800;
 
-const char BackgroundTiles[] = {
-	#embed ctm_map8 "playfield.ctm"
-};
-
 const char SpriteImages[] = {
 	#embed spd_sprites lzo "tank.spd"
 };
@@ -35,7 +34,53 @@ const char NumbersFont[] = {
 	#embed ctm_chars lzo "numbers.ctm"
 };
 
-char BackgroundMap[40 * 40];
+char * const BackgroundMap = (char *)0xe000;
+
+static inline bool level_field(char cx, char cy)
+{
+	return (level1.map[cy + 42 * (cx >> 3)] & (0x80 >> (cx & 7))) != 0;
+}
+
+static inline char level_pixel_field(int x, int y)
+{
+	signed char cx = x >> 3;
+	signed char cy = y >> 3;
+
+	if (cx < 0 || cy < 0 || cx >= 48 || cy >= 42)
+		return 2;
+	else if (level_field(cx, cy))
+		return 1;
+	else
+		return 0;
+}
+
+static inline char level_sprite_field(int x, int y)
+{
+	signed char cx = (x - 24) >> 3;
+	signed char cy = (y - 50) >> 3;
+
+	if (cx < 0 || cy < 0 || cx >= 48 || cy >= 42)
+		return 2;
+	else if (level_field(cx, cy))
+		return 1;
+	else
+		return 0;
+}
+
+
+static inline char level_player_field(int x, int y)
+{
+	signed char cx = (x + (12 - 24) * 16) >> 7;
+	signed char cy = (y + (11 - 50) * 16) >> 7;
+
+	if (cx < 0 || cy < 0 || cx >= 48 || cy >= 42)
+		return 2;
+	else if (level_field(cx, cy))
+		return 1;
+	else
+		return 0;
+}
+
 
 template<int y>
 inline void font_expand_2(char t, const char * mp0, const char * mp1)
@@ -87,7 +132,7 @@ void font_expand(char t, char x, char y)
 
 void map_expand(char pi, char x, char y)
 {
-	const char * sp = BackgroundMap + 40 * y + x;
+	const char * sp = BackgroundMap + 64 * y + x;
 
 	char * dp = Screen;
 	char 	m = 0;
@@ -104,20 +149,20 @@ void map_expand(char pi, char x, char y)
 			dp[x] = sp[x] | m;
 
 		dp += 40;
-		sp += 40;
+		sp += 64;
 	}	
 }
 
 void back_init(void)
 {
-	for(char y=0; y<39; y++)
+	for(char y=0; y<42; y++)
 	{
-		for(char x=0; x<39; x++)
+		for(char x=0; x<48; x++)
 		{
-			char	c0 = BackgroundTiles[40 * y + x];
-			char	c1 = BackgroundTiles[40 * y + x + 1];
-			char	c2 = BackgroundTiles[40 * y + x + 40];
-			char	c3 = BackgroundTiles[40 * y + x + 41];
+			bool	c0 = level_field(x, y);
+			bool	c1 = level_field(x + 1, y);
+			bool	c2 = level_field(x, y + 1);
+			bool	c3 = level_field(x + 1, y + 1);
 
 			char m = 0;
 			if (c0)
@@ -129,7 +174,7 @@ void back_init(void)
 			if (c3)
 				m |= 8;
 
-			BackgroundMap[40 * y + x] = m;
+			BackgroundMap[64 * y + x] = m;
 		}
 	}
 }
@@ -165,7 +210,21 @@ __striped struct Player
 
 }	players[2];
 
+unsigned	bolt_x, bolt_y;
+
 char	score[2][6];
+
+void bolt_init(void)
+{
+	do {
+		bolt_x = rand() & 511;
+		bolt_y = rand() & 511;
+	} while (
+		level_sprite_field(bolt_x + 4, bolt_y + 4) ||
+		level_sprite_field(bolt_x + 19, bolt_y + 4) ||
+		level_sprite_field(bolt_x + 4, bolt_y + 19) ||
+		level_sprite_field(bolt_x + 19, bolt_y + 19));	
+}
 
 void stats_putchar(PlayerID pi, char x, char y, char ch)
 {
@@ -189,14 +248,15 @@ void player_init(PlayerID pi)
 
 	if (p.hqx < 100)
 		p.vx = 4;
-	else if (p.hqx > 260)
-		p.vx = 164;
+	else if (p.hqx > 332)
+		p.vx = 236;
 	else
 		p.vx = ((p.hqx - 100) & ~7) | 4;
+
 	if (p.hqy < 100)
 		p.vy = 4;
-	else if (p.hqy > 244)
-		p.vy = 148;
+	else if (p.hqy > 268)
+		p.vy = 172;
 	else
 		p.vy = ((p.hqy - 100) & ~7) | 4;
 
@@ -238,7 +298,7 @@ void player_check(PlayerID pi)
 
 		unsigned cx = (e.shotx - 22 * 16) >> 7;
 		unsigned cy = (e.shoty - 48 * 16) >> 7;
-		if (BackgroundTiles[40 * cy + cx])
+		if (level_field(cx, cy))
 			e.shot = 0;		
 	}
 
@@ -264,17 +324,33 @@ void player_check(PlayerID pi)
 			stats_putchar(pi, 8, 0, 11);
 		}
 	}
+
+	if (!p.explosion)
+	{
+		if ((p.px >> 4) + 16 - bolt_x < 32 && (p.py >> 4) + 16 - bolt_y < 32)
+		{
+			p.dscore += 100;
+			bolt_init();
+		}		
+	}
 }
 
-static inline char BackTile(int x, int y)
+void collision_check(void)
 {
-	signed char cx = (x + (12 - 24) * 16) >> 7;
-	signed char cy = (y + (11 - 50) * 16) >> 7;
+	auto & p = players[0];
+	auto & e = players[1];
 
-	if (cx < 0 || cy < 0 || cx >= 40 || cy >= 40)
-		return 2;
-	else
-		return BackgroundTiles[cy * 40 + cx];
+	if (!e.explosion && !p.explosion)
+	{
+		if ((int)(p.px - e.px) >= -256 && (int)(p.px - e.px) < 256 &&
+			(int)(p.py - e.py) >= -256 && (int)(p.py - e.py) < 256)
+		{
+			if (!p.invulnerable)
+				p.explosion = 16;
+			if (!e.invulnerable)
+				e.explosion = 16;
+		}
+	}
 }
 
 char uatan(char tx, char ty)
@@ -350,50 +426,71 @@ void player_ai(PlayerID pi)
 	unsigned	x7 = p.px + dy, y7 = p.py - dx;
 	unsigned	x3 = p.px - dy, y3 = p.py + dx;
 
-	char ch0 = BackTile(x0, y0);
-	char ch1 = BackTile(x1, y1);
-	char ch2 = BackTile(x2, y2);
-	char ch3 = BackTile(x3, y3);
-	char ch7 = BackTile(x7, y7);
+	char ch0 = level_player_field(x0, y0);
+	char ch1 = level_player_field(x1, y1);
+	char ch2 = level_player_field(x2, y2);
+	char ch3 = level_player_field(x3, y3);
+	char ch7 = level_player_field(x7, y7);
 
+#if DEBUG_AI
 	Color[40 * 20 + 20 * pi + 0] = ch0;
 	Color[40 * 20 + 20 * pi + 1] = ch1;
 	Color[40 * 20 + 20 * pi + 2] = ch2;
 	Color[40 * 20 + 20 * pi + 3] = ch3;
 	Color[40 * 20 + 20 * pi + 4] = ch7;
-
+#endif
+	
 	signed char	tx, ty;
+	
+	signed char bx = (bolt_x - (p.px >> 4) + 4) >> 3;
+	signed char by = (bolt_y - (p.py >> 4) + 4) >> 3;
 
 	if (p.flag)
 	{
-		tx = p.hqx >> 3;
-		ty = p.hqy >> 3;
+		tx = (p.hqx - (p.px >> 4) + 4) >> 3;
+		ty = (p.hqy - (p.py >> 4) + 4) >> 3;
 	}
 	else
 	{
-		tx = e.flagx >> 3;
-		ty = e.flagy >> 3;
+		tx = (e.flagx - (p.px >> 4) + 4) >> 3;
+		ty = (e.flagy - (p.py >> 4) + 4) >> 3;
 	}
-
-	tx -= p.px >> 7;
-	ty -= p.py >> 7;
 
 	signed char etx = (e.px - p.px + 64) >> 7;
 	signed char ety = (e.py - p.py + 64) >> 7;
 
 	char tdist = idist(tx, ty);
 	char edist = idist(etx, ety);
+	char bdist = idist(bx, by);
 
+#if DEBUG_AI
 	Screen2[40 * 24 + 20 * pi + 3] = tdist + 0xb0;
 	Screen2[40 * 24 + 20 * pi + 4] = edist + 0xb0;
+	Screen2[40 * 24 + 20 * pi + 5] = (p.dir & 7) + 0xb0;
+#endif
 
-	if (tdist > (p.flag ? 20 : 4))
+	if (tdist > (p.flag ? 20 : 6))
 	{
-		if (e.flag || edist < 4)
+		if (e.invulnerable)
+		{
+ 			if (!p.flag)
+			{
+				tx = bx;
+				ty = by;
+				tdist = bdist;
+			}
+		}
+		else if (e.flag || edist < 6)
 		{
 			tx = etx;
 			ty = ety;
 			tdist = edist;
+		}
+		else if (bdist < 8)
+		{
+			tx = bx;
+			ty = by;
+			tdist = bdist;
 		}
 	}
 
@@ -402,44 +499,70 @@ void player_ai(PlayerID pi)
 
 	char tdiff = (adir - dir) & 15;
 
+#if DEBUG_AI
 	Screen2[40 * 24 + 20 * pi + 0] = dir + 0xb0;
 	Screen2[40 * 24 + 20 * pi + 1] = adir + 0xb0;
 	Screen2[40 * 24 + 20 * pi + 2] = tdiff + 0xb0;
+#endif
 
-	if (!(p.dir & 7))
-		p.jx = 0;
-
-	if (ch0 && ch2)
+	if (p.jx != 0 && p.jy == 0 && tdiff >= 3 && tdiff <= 13)
 	{
-		if (p.jx == 0)
+
+	}
+	else
+	{
+		if ((p.dir & 7) == 2)
+			p.jx = 0;
+
+		p.jy = -1;
+		if (ch0 && ch2)
 		{
-			if (!ch7 && (tdiff > 0 && tdiff < 8))
-				p.jx = -1;
-			else if (!ch3 && tdiff > 8)
-				p.jx = 1;
-			else if (ch3)
+			if (p.jx == 0)
+			{
+				if (!ch7 && (tdiff > 0 && tdiff < 8))
+					p.jx = -1;
+				else if (!ch3 && tdiff > 8)
+					p.jx = 1;
+				else if (ch3)
+					p.jx = -1;
+				else
+					p.jx = 1;
+			}
+		}
+		else if (ch0)
+			p.jx = 1;
+		else if (ch2)
+			p.jx = -1;
+		else if (!ch0 && !ch7 && (tdiff > 1 && tdiff < 8))
+			p.jx = -1;
+		else if (!ch2 && !ch3 && (tdiff > 8 && tdiff < 15))
+			p.jx = 1;
+		else if (ch1 && !p.jx)
+			p.jx = (rand() & 2) - 1;
+
+		if (p.jx == 0 && !(rand() & 31) && tdiff > 6 && tdiff < 10)
+		{
+			if (tdiff < 8)
 				p.jx = -1;
 			else
 				p.jx = 1;
+			p.jy = 0;
 		}
 	}
-	else if (ch0)
-		p.jx = 1;
-	else if (ch2)
-		p.jx = -1;
-	else if (!ch0 && !ch7 && (tdiff > 1 && tdiff < 8))
-		p.jx = -1;
-	else if (!ch2 && !ch3 && (tdiff > 8 && tdiff < 15))
-		p.jx = 1;
 
-	p.jy = -1;
-	if (p.jx == 0 && !(rand() & 31) && tdiff > 4 && tdiff < 12)
+	char	endir = e.dir >> 2;
+	char	rdir = (edir - dir) & 15;
+	char	enrdir = (endir - dir) & 15;
+
+	if (edist < 3 && rdir == 0)
+		p.jy = 1;
+	else if (edist < 5 && (rdir <= 1 || rdir >= 15) && enrdir >= 6 && enrdir <= 10)
 	{
-		if (tdiff < 8)
+		p.jy = 1;
+		if (rdir == 1)
 			p.jx = -1;
-		else
+		else if (rdir == 15)
 			p.jx = 1;
-		p.jy = 0;
 	}
 
 	p.jb = false;
@@ -510,6 +633,7 @@ void player_control(PlayerID pi)
 void player_move(PlayerID pi)
 {
 	auto & p = players[pi];
+	auto & e = players[1 - pi];
 
 	if (p.explosion)
 	{
@@ -559,31 +683,28 @@ void player_move(PlayerID pi)
 		unsigned	tx = p.px + dx;
 		unsigned	ty = p.py + dy;
 
-		unsigned cx = (tx - 20 * 16) >> 7;
-		unsigned cy = (ty - 46 * 16) >> 7;
-
 		if (dx < 0)
 		{
-			if (BackgroundTiles[40 * cy + cx] || 
-				BackgroundTiles[40 * cy + cx + 40])
+			if (level_player_field(tx - 8 * 16, ty - 8 * 16) || 
+				level_player_field(tx - 8 * 16, ty + 7 * 16))
 				tx -= dx;
 		}
 		else if (dx > 0)
 		{
-			if (BackgroundTiles[40 * cy + cx + 2] || 
-				BackgroundTiles[40 * cy + cx + 40 + 2])
+			if (level_player_field(tx + 8 * 16, ty - 8 * 16) || 
+				level_player_field(tx + 8 * 16, ty + 7 * 16))
 				tx -= dx;
 		}
 		if (dy < 0)
 		{
-			if (BackgroundTiles[40 * cy + cx] || 
-				BackgroundTiles[40 * cy + cx + 1])
+			if (level_player_field(tx - 8 * 16, ty - 8 * 16) || 
+				level_player_field(tx + 8 * 16, ty - 8 * 16))
 				ty -= dy;
 		}
 		else if (dy > 0)
 		{
-			if (BackgroundTiles[40 * cy + cx + 80] || 
-				BackgroundTiles[40 * cy + cx + 1 + 80])
+			if (level_player_field(tx - 8 * 16, ty + 7 * 16) || 
+				level_player_field(tx + 8 * 16, ty + 7 * 16))
 				ty -= dy;
 		}
 
@@ -647,15 +768,24 @@ void view_move(PlayerID pi, char phase)
 	else
 		vspr_image(pi * 8 + 1, 64 + (players[1].dir >> 2));
 
-	if ((players[0].px >> 4) + 16 - players[0].hqx < 32 && (players[0].py >> 4) + 16 - players[0].hqy < 32)
-		vspr_hide(pi * 8 + 2);
+	if (p.vx < 16 * 8)
+	{
+		vspr_color(pi * 8 + 2, VCOL_YELLOW);
+		if ((players[0].px >> 4) + 16 - players[0].hqx < 32 && (players[0].py >> 4) + 16 - players[0].hqy < 32)
+			vspr_hide(pi * 8 + 2);
+		else
+			view_sprite(pi, 2, players[0].hqx - p.vx, players[0].hqy - p.vy);
+	}
 	else
-		view_sprite(pi, 2, players[0].hqx - p.vx, players[0].hqy - p.vy);
+	{
+		vspr_color(pi * 8 + 2, VCOL_LT_BLUE);
+		if ((players[1].px >> 4) + 16 - players[1].hqx < 32 && (players[1].py >> 4) + 16 - players[1].hqy < 32)
+			vspr_hide(pi * 8 + 2);
+		else
+			view_sprite(pi, 2, players[1].hqx - p.vx, players[1].hqy - p.vy);
+	}
 
-	if ((players[1].px >> 4) + 16 - players[1].hqx < 32 && (players[1].py >> 4) + 16 - players[1].hqy < 32)
-		vspr_hide(pi * 8 + 3);
-	else
-		view_sprite(pi, 3, players[1].hqx - p.vx, players[1].hqy - p.vy);
+	view_sprite(pi, 3, bolt_x - p.vx, bolt_y - p.vy);
 
 	if (players[1].flag)
 		vspr_hide(pi * 8 + 4);
@@ -705,7 +835,7 @@ void view_redraw(PlayerID pi, char phase)
 			p.dvx = -1;
 			p.vx = (p.vx & ~7) | 3;
 		}
-		else if (p.vx < 160 && tx > p.vx + 128)
+		else if (p.vx < 232 && tx > p.vx + 128)
 		{
 			p.dvx = 1;
 			p.vx = (p.vx & ~7) | 4;
@@ -718,7 +848,7 @@ void view_redraw(PlayerID pi, char phase)
 			p.dvy = -1;
 			p.vy = (p.vy & ~7) | 3;
 		}
-		else if (p.vy < 144 && ty > p.vy + 144)
+		else if (p.vy < 168 && ty > p.vy + 144)
 		{
 			p.dvy = 1;
 			p.vy = (p.vy & ~7) | 4;
@@ -798,7 +928,7 @@ int main(void)
 	mmap_set(MMAP_NO_ROM);
 
 	memset(Screen, 15, 40 * 21);
-	memset(Color, VCOL_MED_GREY, 1000);
+	memset(Color, VCOL_RED, 1000);
 
 	for(char y=0; y<20; y++)
 	{
@@ -831,22 +961,22 @@ int main(void)
 	vspr_init(Screen);
 
 	vspr_set(0, 0, 0, 64, VCOL_YELLOW);
-	vspr_set(1, 0, 0, 64, VCOL_RED);
+	vspr_set(1, 0, 0, 64, VCOL_LT_BLUE);
 	vspr_set(2, 0, 0, 84, VCOL_YELLOW);
-	vspr_set(3, 0, 0, 84, VCOL_RED);
+	vspr_set(3, 0, 0, 84, VCOL_LT_GREY);
 	vspr_set(4, 0, 0, 80, VCOL_YELLOW);
-	vspr_set(5, 0, 0, 80, VCOL_RED);
+	vspr_set(5, 0, 0, 80, VCOL_LT_BLUE);
 	vspr_set(6, 0, 0, 85, VCOL_YELLOW);
-	vspr_set(7, 0, 0, 85, VCOL_RED);
+	vspr_set(7, 0, 0, 85, VCOL_LT_BLUE);
 
 	vspr_set(8, 0, 0, 64, VCOL_YELLOW);
-	vspr_set(9, 0, 0, 64, VCOL_RED);
+	vspr_set(9, 0, 0, 64, VCOL_LT_BLUE);
 	vspr_set(10, 0, 0, 84, VCOL_YELLOW);
-	vspr_set(11, 0, 0, 84, VCOL_RED);
+	vspr_set(11, 0, 0, 84, VCOL_LT_GREY);
 	vspr_set(12, 0, 0, 80, VCOL_YELLOW);
-	vspr_set(13, 0, 0, 80, VCOL_RED);
+	vspr_set(13, 0, 0, 80, VCOL_LT_BLUE);
 	vspr_set(14, 0, 0, 85, VCOL_YELLOW);
-	vspr_set(15, 0, 0, 85, VCOL_RED);
+	vspr_set(15, 0, 0, 85, VCOL_LT_BLUE);	
 
 	rirq_build(&rirqbottom, 2);
 	rirq_write(&rirqbottom, 0, &vic.memptr, 0x12);
@@ -864,12 +994,13 @@ int main(void)
 
 	rirq_start();
 
-	player_init_hq(PLAYER_0, 32, 58);
-	player_init_hq(PLAYER_1, 304, 330);
+	player_init_hq(PLAYER_0, level1.x0 * 8 + 24, level1.y0 * 8 + 50);
+	player_init_hq(PLAYER_1, level1.x1 * 8 + 24, level1.y1 * 8 + 50);
 	player_init_flag(PLAYER_0);
 	player_init_flag(PLAYER_1);
 	player_init(PLAYER_0);
 	player_init(PLAYER_1);
+	bolt_init();
 
 	for(char i=0; i<5; i++)
 	{
@@ -879,6 +1010,7 @@ int main(void)
 	}
 
 	char	phase = 0;
+	char	bphase = 0;
 	while (true)
 	{
 		view_move(PLAYER_0, phase);
@@ -900,16 +1032,24 @@ int main(void)
 //		vic.color_border = VCOL_DARK_GREY;
 
 		char flgani = 80 + ((phase >> 2) & 3); 
+		char boltani = 96 + (bphase >> 2);
+		bphase++;
+		if (bphase == 24)
+			bphase = 0;
 
 		vspr_image(4, flgani);
 		vspr_image(5, flgani);
 		vspr_image(12, flgani);
 		vspr_image(13, flgani);
 
+		vspr_image(3, boltani);
+		vspr_image(11, boltani);
+
 		phase++;
 
 		player_check(PLAYER_0);
 		player_check(PLAYER_1);
+		collision_check();
 
 		player_control(PLAYER_0);
 //		player_control(PLAYER_1);
