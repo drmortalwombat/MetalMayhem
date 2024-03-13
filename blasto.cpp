@@ -6,10 +6,15 @@
 #include <c64/sprites.h>
 #include <c64/rasterirq.h>
 #include <c64/cia.h>
+#include <c64/sid.h>
+#include <audio/sidfx.h>
 #include <oscar.h>
 #include <conio.h>
 #include <math.h>
 #include "levels.h"
+#include "gamemusic.h"
+
+#pragma region( zeropage, 0x80, 0xfc, , , {} )
 
 #define DEBUG_AI	0
 
@@ -41,44 +46,38 @@ static inline bool level_field(char cx, char cy)
 	return (level1.map[cy + 42 * (cx >> 3)] & (0x80 >> (cx & 7))) != 0;
 }
 
-static inline char level_pixel_field(int x, int y)
+static inline bool level_pixel_field(int x, int y)
 {
 	signed char cx = x >> 3;
 	signed char cy = y >> 3;
 
 	if (cx < 0 || cy < 0 || cx >= 48 || cy >= 42)
-		return 2;
-	else if (level_field(cx, cy))
-		return 1;
+		return true;
 	else
-		return 0;
+	 	return level_field(cx, cy);
 }
 
-static inline char level_sprite_field(int x, int y)
+static inline bool level_sprite_field(int x, int y)
 {
-	signed char cx = (x - 24) >> 3;
-	signed char cy = (y - 50) >> 3;
+	char cx = (x - 24) >> 3;
+	char cy = (y - 50) >> 3;
 
-	if (cx < 0 || cy < 0 || cx >= 48 || cy >= 42)
-		return 2;
-	else if (level_field(cx, cy))
-		return 1;
+	if (cx >= 48 || cy >= 42)
+		return true;
 	else
-		return 0;
+		return level_field(cx, cy);
 }
 
 
-static inline char level_player_field(int x, int y)
+static inline bool level_player_field(int x, int y)
 {
-	signed char cx = (x + (12 - 24) * 16) >> 7;
-	signed char cy = (y + (11 - 50) * 16) >> 7;
+	char cx = (x - 208) >> 7;
+	char cy = (y - 632) >> 7;
 
-	if (cx < 0 || cy < 0 || cx >= 48 || cy >= 42)
-		return 2;
-	else if (level_field(cx, cy))
-		return 1;
+	if (cx >= 48 || cy >= 42)
+		return true;
 	else
-		return 0;
+		return level_field(cx, cy);
 }
 
 
@@ -179,13 +178,184 @@ void back_init(void)
 	}
 }
 
-const signed char sintab16[16] = {
-	#for(i, 16) (char)floor(sin(i * PI / 8) * 16.0 + 0.5),
+const signed char sintab16[20] = {
+	#for(i, 20) (signed char)floor(sin(i * PI / 8) * 16.0 + 0.5),
 };
 
-const signed char sintab14[16] = {
-	#for(i, 16) (char)floor(sin(i * PI / 8) * 14.0 + 0.5),
+__striped const int sintab128[20] = {
+	#for(i, 20) (int)floor(sin(i * PI / 8) * 128.0 + 0.5),
 };
+
+const signed char sintab14[20] = {
+	#for(i, 20) (signed char)floor(sin(i * PI / 8) * 14.0 + 0.5),
+};
+
+const signed char sintab112[20] = {
+	#for(i, 20) (signed char)floor(sin(i * PI / 8) * 112.0 + 0.5),
+};
+
+SIDFX	SIDFXExplosion[2] = {{
+	2000, 0,
+	SID_CTRL_GATE | SID_CTRL_SAW,
+	SID_ATK_2 | SID_DKY_6,
+	0xf0  | SID_DKY_750,
+	-50, 0,
+	2, 0,
+	100
+},{
+	2000, 0,
+	SID_CTRL_GATE | SID_CTRL_NOISE,
+	SID_ATK_2 | SID_DKY_6,
+	0xf0  | SID_DKY_2400,
+	-10, 0,
+	5, 200,
+	50
+}};
+
+SIDFX	SIDFXShot[1] = {{
+	8000, 0,
+	SID_CTRL_GATE | SID_CTRL_NOISE,
+	SID_ATK_2 | SID_DKY_6,
+	0xf0  | SID_DKY_750,
+	-100, 0,
+	2, 20,
+	10
+}};
+
+SIDFX	SIDFXFlagCapture[4] = {{
+	NOTE_C(8), 3072, 
+	SID_CTRL_GATE | SID_CTRL_SAW,
+	SID_ATK_2 | SID_DKY_6,
+	0xf0  | SID_DKY_6,
+	0, 0,
+	1, 0,
+	4
+},{
+	NOTE_E(8), 3072, 
+	SID_CTRL_GATE | SID_CTRL_SAW,
+	SID_ATK_2 | SID_DKY_6,
+	0xf0  | SID_DKY_6,
+	0, 0,
+	1, 0,
+	4
+},{
+	NOTE_G(8), 3072, 
+	SID_CTRL_GATE | SID_CTRL_SAW,
+	SID_ATK_2 | SID_DKY_6,
+	0xf0  | SID_DKY_6,
+	0, 0,
+	1, 0,
+	4
+},{
+	NOTE_C(9), 3072, 
+	SID_CTRL_GATE | SID_CTRL_SAW,
+	SID_ATK_2 | SID_DKY_6,
+	0xf0  | SID_DKY_300,
+	0, 0,
+	4, 32,
+	4
+}};
+
+SIDFX	SIDFXFlagArrival[7] = {{
+	NOTE_E(9), 1840, 
+	SID_CTRL_GATE | SID_CTRL_SAW | SID_CTRL_RECT,
+	SID_ATK_2 | SID_DKY_300,
+	0x00  | SID_DKY_300,
+	0, 0,
+	1, 4,
+	4
+},{
+	NOTE_G(9), 1840, 
+	SID_CTRL_GATE | SID_CTRL_SAW | SID_CTRL_RECT,
+	SID_ATK_2 | SID_DKY_300,
+	0x00  | SID_DKY_300,
+	0, 0,
+	1, 1,
+	4
+},{
+	NOTE_A(9), 1840, 
+	SID_CTRL_GATE | SID_CTRL_SAW | SID_CTRL_RECT,
+	SID_ATK_2 | SID_DKY_300,
+	0x00  | SID_DKY_300,
+	0, 0,
+	1, 1,
+	4
+},{
+	NOTE_B(9), 1840, 
+	SID_CTRL_GATE | SID_CTRL_SAW | SID_CTRL_RECT,
+	SID_ATK_2 | SID_DKY_300,
+	0x00  | SID_DKY_300,
+	0, 0,
+	1, 4,
+	4
+},{
+	NOTE_E(10), 1840, 
+	SID_CTRL_GATE | SID_CTRL_SAW | SID_CTRL_RECT,
+	SID_ATK_2 | SID_DKY_300,
+	0x00  | SID_DKY_300,
+	0, 0,
+	1, 4,
+	4
+},{
+	NOTE_D(10), 1840, 
+	SID_CTRL_GATE | SID_CTRL_SAW | SID_CTRL_RECT,
+	SID_ATK_2 | SID_DKY_300,
+	0x00  | SID_DKY_300,
+	0, 0,
+	1, 4,
+	4
+},{
+	NOTE_B(9), 1840, 
+	SID_CTRL_GATE | SID_CTRL_SAW | SID_CTRL_RECT,
+	SID_ATK_2 | SID_DKY_300,
+	0x00  | SID_DKY_300,
+	0, 0,
+	1, 32,
+	4
+}};
+
+
+SIDFX	SIDFXKatching[5] = {{
+	NOTE_C(10), 512, 
+	SID_CTRL_GATE | SID_CTRL_RECT,
+	SID_ATK_2 | SID_DKY_114,
+	0x80  | SID_DKY_114,
+	0, 0,
+	1, 0,
+	2
+},{
+	NOTE_C(9), 512, 
+	SID_CTRL_NOISE,
+	SID_ATK_2 | SID_DKY_114,
+	0x80  | SID_DKY_114,
+	0, 0,
+	1, 0,
+	2
+},{
+	NOTE_G(10), 512, 
+	SID_CTRL_GATE | SID_CTRL_RECT,
+	SID_ATK_2 | SID_DKY_114,
+	0x80  | SID_DKY_114,
+	0, 0,
+	1, 0,
+	2
+},{
+	NOTE_G(9), 512, 
+	SID_CTRL_NOISE,
+	SID_ATK_2 | SID_DKY_114,
+	0x80  | SID_DKY_114,
+	0, 0,
+	1, 0,
+	2
+},{
+	NOTE_E(10), 512, 
+	SID_CTRL_GATE | SID_CTRL_RECT,
+	SID_ATK_2 | SID_DKY_750,
+	0xf0  | SID_DKY_750,
+	0, 16,
+	4, 60,
+	2
+}};
 
 enum PlayerID
 {
@@ -310,9 +480,10 @@ void player_check(PlayerID pi)
 
 		if (dx < 256 && dy < 256)
 		{
-			p.explosion = 16;
+			p.explosion = 64;
 			e.shot = 0;
 			e.dscore += 200;
+			sidfx_play(2, SIDFXExplosion, 2);
 		}
 	}
 
@@ -322,6 +493,7 @@ void player_check(PlayerID pi)
 		{
 			p.flag = true;
 			stats_putchar(pi, 8, 0, 11);
+			sidfx_play(2, SIDFXFlagCapture, 4);
 		}
 	}
 
@@ -329,6 +501,7 @@ void player_check(PlayerID pi)
 	{
 		if ((p.px >> 4) + 16 - bolt_x < 32 && (p.py >> 4) + 16 - bolt_y < 32)
 		{
+			sidfx_play(2, SIDFXKatching, 5);
 			p.dscore += 100;
 			bolt_init();
 		}		
@@ -342,13 +515,19 @@ void collision_check(void)
 
 	if (!e.explosion && !p.explosion)
 	{
-		if ((int)(p.px - e.px) >= -256 && (int)(p.px - e.px) < 256 &&
-			(int)(p.py - e.py) >= -256 && (int)(p.py - e.py) < 256)
+		if ((int)(p.px - e.px) >= -192 && (int)(p.px - e.px) < 192 &&
+			(int)(p.py - e.py) >= -192 && (int)(p.py - e.py) < 192)
 		{
 			if (!p.invulnerable)
-				p.explosion = 16;
+			{
+				p.explosion = 64;
+				sidfx_play(2, SIDFXExplosion, 2);
+			}
 			if (!e.invulnerable)
-				e.explosion = 16;
+			{
+				e.explosion = 64;
+				sidfx_play(2, SIDFXExplosion, 2);
+			}
 		}
 	}
 }
@@ -412,7 +591,7 @@ void player_ai(PlayerID pi)
 	char dir = p.dir >> 2;
 
 	signed int hx = - sintab16[dir] << 3;
-	signed int hy = - sintab16[(dir + 4) & 15] << 3;
+	signed int hy = - sintab16[dir + 4] << 3;
 
 	signed int dx = hx << 1;
 	signed int dy = hy << 1;
@@ -426,11 +605,11 @@ void player_ai(PlayerID pi)
 	unsigned	x7 = p.px + dy, y7 = p.py - dx;
 	unsigned	x3 = p.px - dy, y3 = p.py + dx;
 
-	char ch0 = level_player_field(x0, y0);
-	char ch1 = level_player_field(x1, y1);
-	char ch2 = level_player_field(x2, y2);
-	char ch3 = level_player_field(x3, y3);
-	char ch7 = level_player_field(x7, y7);
+	bool ch0 = level_player_field(x0, y0);
+	bool ch1 = level_player_field(x1, y1);
+	bool ch2 = level_player_field(x2, y2);
+	bool ch3 = level_player_field(x3, y3);
+	bool ch7 = level_player_field(x7, y7);
 
 #if DEBUG_AI
 	Color[40 * 20 + 20 * pi + 0] = ch0;
@@ -439,7 +618,7 @@ void player_ai(PlayerID pi)
 	Color[40 * 20 + 20 * pi + 3] = ch3;
 	Color[40 * 20 + 20 * pi + 4] = ch7;
 #endif
-	
+
 	signed char	tx, ty;
 	
 	signed char bx = (bolt_x - (p.px >> 4) + 4) >> 3;
@@ -550,24 +729,29 @@ void player_ai(PlayerID pi)
 		}
 	}
 
-	char	endir = e.dir >> 2;
-	char	rdir = (edir - dir) & 15;
-	char	enrdir = (endir - dir) & 15;
-
-	if (edist < 3 && rdir == 0)
-		p.jy = 1;
-	else if (edist < 5 && (rdir <= 1 || rdir >= 15) && enrdir >= 6 && enrdir <= 10)
+	if (e.explosion)
+		p.jb = false;
+	else
 	{
-		p.jy = 1;
-		if (rdir == 1)
-			p.jx = -1;
-		else if (rdir == 15)
-			p.jx = 1;
-	}
+		char	endir = e.dir >> 2;
+		char	rdir = (edir - dir) & 15;
+		char	enrdir = (endir - dir) & 15;
 
-	p.jb = false;
-	if (edist < 8 && edir == dir)
-		p.jb = true;
+		if (edist < 3 && rdir == 0)
+			p.jy = 1;
+		else if (edist < 5 && (rdir <= 1 || rdir >= 15) && enrdir >= 6 && enrdir <= 10)
+		{
+			p.jy = 1;
+			if (rdir == 1)
+				p.jx = -1;
+			else if (rdir == 15)
+				p.jx = 1;
+		}
+
+		p.jb = false;
+		if (edist < 8 && edir == dir)
+			p.jb = true;
+	}
 
 }
 
@@ -660,52 +844,101 @@ void player_move(PlayerID pi)
 		if (p.invulnerable && !p.home)
 			p.invulnerable--;
 
+		signed char dx14 = sintab14[dir];
+		signed char dy14 = sintab14[dir + 4];
+		signed char dx16 = sintab16[dir];
+		signed char dy16 = sintab16[dir + 4];
+		signed char dx112 = sintab112[dir];
+		signed char dy112 = sintab112[dir + 4];
+		int dx128 = sintab128[dir];
+		int dy128 = sintab128[dir + 4];
+
 		signed char dx = 0, dy = 0;
+
 		if (p.jy > 0)
 		{
-			dx = sintab14[dir];
-			dy = sintab14[(dir + 4) & 15];
+			dx = dx14;
+			dy = dy14;
 		}
 		else if (p.jy < 0) 
 		{
 			if (p.flag)
 			{
-				dx = -sintab14[dir];
-				dy = -sintab14[(dir + 4) & 15];
+				dx = -dx14;
+				dy = -dy14;
 			}
 			else
 			{
-				dx = -sintab16[dir];
-				dy = -sintab16[(dir + 4) & 15];
+				dx = -dx16;
+				dy = -dy16;
 			}
 		}
 
 		unsigned	tx = p.px + dx;
 		unsigned	ty = p.py + dy;
 
-		if (dx < 0)
+		unsigned	txc	= tx, tyc = ty;
+		unsigned	txf = tx, tyf = ty;
+
+		if (p.jy > 0)
 		{
-			if (level_player_field(tx - 8 * 16, ty - 8 * 16) || 
-				level_player_field(tx - 8 * 16, ty + 7 * 16))
-				tx -= dx;
+			txc += dx112;
+			tyc += dy112;
+			txf += dx112;
+			tyf += dy112;
 		}
-		else if (dx > 0)
+		else
 		{
-			if (level_player_field(tx + 8 * 16, ty - 8 * 16) || 
-				level_player_field(tx + 8 * 16, ty + 7 * 16))
-				tx -= dx;
+			txc -= dx128;
+			tyc -= dy128;
+			txf -= dx112;
+			tyf -= dy112;
+		}		
+
+		unsigned	tx0 = txf - dy112;
+		unsigned	ty0 = tyf + dx112;
+
+		unsigned	tx1 = txf + dy112;
+		unsigned	ty1 = tyf - dx112;
+
+		bool	f0 = level_player_field(tx0, ty0);
+		bool	fc = level_player_field(txc, tyc);
+		bool	f1 = level_player_field(tx1, ty1);
+
+		if (fc || (f0 && f1))
+		{
+			tx -= dx;
+			ty -= dy;
 		}
-		if (dy < 0)
+		else if (f0)
 		{
-			if (level_player_field(tx - 8 * 16, ty - 8 * 16) || 
-				level_player_field(tx + 8 * 16, ty - 8 * 16))
-				ty -= dy;
+			bool	bx = level_player_field(tx0 + dy16, ty0);
+			bool	by = level_player_field(tx0, ty0 - dx16);
+
+			if (!bx)
+				tx += dy16;
+			else if (!by)
+				ty -= dx16;
+			else
+			{
+				tx += dy16;
+				ty -= dx16;				
+			}
 		}
-		else if (dy > 0)
+		else if (f1)
 		{
-			if (level_player_field(tx - 8 * 16, ty + 7 * 16) || 
-				level_player_field(tx + 8 * 16, ty + 7 * 16))
-				ty -= dy;
+			bool	bx = level_player_field(tx1 - dy16, ty1);
+			bool	by = level_player_field(tx1, ty1 + dx16);
+
+			if (!bx)
+				tx -= dy16;
+			else if (!by)
+				ty += dx16;
+			else
+			{
+				tx -= dy16;
+				ty += dx16;				
+			}
 		}
 
 		p.px = tx;
@@ -715,9 +948,10 @@ void player_move(PlayerID pi)
 		{
 			p.shot = 32;
 			p.shotvx = - 2 * sintab16[dir];
-			p.shotvy = - 2 * sintab16[(dir + 4) & 15];
+			p.shotvy = - 2 * sintab16[dir + 4];
 			p.shotx = p.px + 2 * p.shotvx + 160;
 			p.shoty = p.py + 2 * p.shotvy + 128;			
+			sidfx_play(2, SIDFXShot, 1);
 		}
 
 		if ((p.px >> 4) + 16 - p.hqx < 32 && (p.py >> 4) + 16 - p.hqy < 32)
@@ -729,6 +963,7 @@ void player_move(PlayerID pi)
 				p.dscore += 1000;
 				player_init_flag(1 - pi);
 				stats_putchar(pi, 8, 0, 0);
+				sidfx_play(2, SIDFXFlagArrival, 7);
 			}
 		}
 		else
@@ -754,15 +989,19 @@ void view_move(PlayerID pi, char phase)
 	view_sprite(pi, 0, (players[0].px >> 4) - p.vx, (players[0].py >> 4) - p.vy);
 	view_sprite(pi, 1, (players[1].px >> 4) - p.vx, (players[1].py >> 4) - p.vy);
 
-	if (players[0].explosion)
-		vspr_image(pi * 8    , 95 - (players[0].explosion >> 1));
+	if (players[0].explosion >= 48)
+		vspr_image(pi * 8    , 95 - ((players[0].explosion - 48) >> 1));
+	else if (players[0].explosion)
+		vspr_hide(pi * 8);
 	else if (players[0].invulnerable && (phase & 2))
 		vspr_image(pi * 8    , 87);
 	else
 		vspr_image(pi * 8    , 64 + (players[0].dir >> 2));
 
-	if (players[1].explosion)
-		vspr_image(pi * 8 + 1, 95 - (players[1].explosion >> 1));
+	if (players[1].explosion >= 48)
+		vspr_image(pi * 8 + 1, 95 - ((players[1].explosion - 48) >> 1));
+	else if (players[1].explosion)
+		vspr_hide(pi * 8 + 1);
 	else if (players[1].invulnerable && (phase & 2))
 		vspr_image(pi * 8 + 1, 87);
 	else
@@ -835,7 +1074,7 @@ void view_redraw(PlayerID pi, char phase)
 			p.dvx = -1;
 			p.vx = (p.vx & ~7) | 3;
 		}
-		else if (p.vx < 232 && tx > p.vx + 128)
+		else if (p.vx < 232 && tx > p.vx + 112)
 		{
 			p.dvx = 1;
 			p.vx = (p.vx & ~7) | 4;
@@ -910,6 +1149,12 @@ void player_check_score(PlayerID pi, char phase)
 
 RIRQCode		rirqtop, rirqbottom;
 
+__interrupt void irq_music(void)
+{
+	music_play();
+	sidfx_loop_2();
+}
+
 int main(void)
 {
 	cia_init();
@@ -983,9 +1228,10 @@ int main(void)
 	rirq_write(&rirqbottom, 1, &vic.color_back, VCOL_DARK_GREY);
 	rirq_set(9, 54 + 20 * 8, &rirqbottom);
 
-	rirq_build(&rirqtop, 2);
+	rirq_build(&rirqtop, 3);
 	rirq_write(&rirqtop, 0, &vic.memptr, 0x02);
 	rirq_write(&rirqtop, 1, &vic.color_back, VCOL_BLACK);
+	rirq_call(&rirqtop, 2, irq_music);
 	rirq_set(10, 40, &rirqtop);
 
 	vspr_sort();
@@ -1009,6 +1255,10 @@ int main(void)
 		score[0][i] = score[1][i] = 0;
 	}
 
+	music_active = true;	
+	music_init(TUNE_GAME_1);
+	sid.fmodevol = 15;
+
 	char	phase = 0;
 	char	bphase = 0;
 	while (true)
@@ -1023,13 +1273,11 @@ int main(void)
 		vspr_update();
 		rirq_sort();
 
-//		vic.color_border++;
 		view_scroll(PLAYER_0, phase & 7);
 		view_scroll(PLAYER_1, (phase + 4) & 7);
-//		vic.color_border++;
+
 		view_redraw(PLAYER_0, phase & 7);
 		view_redraw(PLAYER_1, (phase + 4) & 7);
-//		vic.color_border = VCOL_DARK_GREY;
 
 		char flgani = 80 + ((phase >> 2) & 3); 
 		char boltani = 96 + (bphase >> 2);
@@ -1057,8 +1305,11 @@ int main(void)
 //		player_ai(PLAYER_0);
 		player_ai(PLAYER_1);
 
+
+		vic.color_border = VCOL_LT_BLUE;
 		player_move(PLAYER_0);
 		player_move(PLAYER_1);
+		vic.color_border = VCOL_DARK_GREY;
 
 		player_check_score(PLAYER_0, phase);
 		player_check_score(PLAYER_1, phase);

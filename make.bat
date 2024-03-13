@@ -1,1 +1,1 @@
-oscar64 -g blasto.cpp
+oscar64 -g blasto.cpp -xz -Oz
