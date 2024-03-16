@@ -7,6 +7,12 @@ struct LevelData
 };
 
 extern const LevelData	level1;
+extern const LevelData	level2;
+extern const LevelData	level3;
+extern const LevelData	level4;
+
+extern const LevelData	*	level_active;
+
 
 
 #pragma compile("levels.cpp")

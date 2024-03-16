@@ -4,6 +4,8 @@
 enum Tune
 {
 	TUNE_GAME_1,
+	TUNE_GAME_2,
+	TUNE_GAME_3,
 };
 
 extern bool music_active;

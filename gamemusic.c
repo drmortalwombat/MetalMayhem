@@ -9,7 +9,7 @@
 #pragma data(music)
 
 __export char music[] = {
-	#embed 0x2000 0x7e "BattleTanks.sid" 
+	#embed 0x2000 0x7e "BattleTanks-3.sid" 
 };
 
 #pragma data(data)
@@ -53,7 +53,7 @@ void music_play(void)
 
 void music_patch_voice3(bool enable)
 {
-	*(char *)0x9568 = enable ? 0x20 : 0x4c;
+	*(char *)0xa157 = enable ? 0x20 : 0x4c;
 }
 
 void music_toggle(void)
