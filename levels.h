@@ -13,6 +13,6 @@ extern const LevelData	level4;
 
 extern const LevelData	*	level_active;
 
-
+extern const LevelData	*	const level_all[4];
 
 #pragma compile("levels.cpp")

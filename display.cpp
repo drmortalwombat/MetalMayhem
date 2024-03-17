@@ -3,7 +3,6 @@
 #include <c64/vic.h>
 #include <c64/memmap.h>
 #include <c64/sprites.h>
-#include <c64/rasterirq.h>
 #include <oscar.h>
 
 const char SpriteImages[] = {
@@ -20,6 +19,8 @@ const char NumberTiles[] = {
 
 const char statx_score[2] = {1, 14};
 const char statx_flag[2] = {7, 12};
+
+RIRQCode		rirqtop, rirqbottom;
 
 void display_init(void)
 {
@@ -46,39 +47,7 @@ void display_init(void)
 
 	vspr_init(Screen);
 
-	vspr_set(0, 0, 0, 64, VCOL_YELLOW);
-	vspr_set(1, 0, 0, 64, VCOL_LT_BLUE);
-	vspr_set(2, 0, 0, 84, VCOL_YELLOW);
-	vspr_set(3, 0, 0, 84, VCOL_LT_GREY);
-	vspr_set(4, 0, 0, 80, VCOL_YELLOW);
-	vspr_set(5, 0, 0, 80, VCOL_LT_BLUE);
-	vspr_set(6, 0, 0, 85, VCOL_YELLOW);
-	vspr_set(7, 0, 0, 85, VCOL_LT_BLUE);
-
-	vspr_set(8, 0, 0, 64, VCOL_YELLOW);
-	vspr_set(9, 0, 0, 64, VCOL_LT_BLUE);
-	vspr_set(10, 0, 0, 84, VCOL_YELLOW);
-	vspr_set(11, 0, 0, 84, VCOL_LT_GREY);
-	vspr_set(12, 0, 0, 80, VCOL_YELLOW);
-	vspr_set(13, 0, 0, 80, VCOL_LT_BLUE);
-	vspr_set(14, 0, 0, 85, VCOL_YELLOW);
-	vspr_set(15, 0, 0, 85, VCOL_LT_BLUE);	
-
-	rirq_build(&rirqbottom, 2);
-	rirq_write(&rirqbottom, 0, &vic.memptr, 0x12);
-	rirq_write(&rirqbottom, 1, &vic.color_back, VCOL_DARK_GREY);
-	rirq_set(9, 54 + 20 * 8, &rirqbottom);
-
-	rirq_build(&rirqtop, 3);
-	rirq_write(&rirqtop, 0, &vic.memptr, 0x02);
-	rirq_write(&rirqtop, 1, &vic.color_back, VCOL_BLACK);
-	rirq_call(&rirqtop, 2, irq_music);
-	rirq_set(10, 40, &rirqtop);
-
-	vspr_sort();
-	vspr_update();
 	rirq_sort();
-
 	rirq_start();	
 }
 
@@ -128,4 +97,40 @@ void display_game_frame(void)
 
 	for(char i=0; i<8; i++)
 		Screen2[0x3f8 + i] = 87;	
+
+	vspr_set(0, 0, 0, 64, VCOL_YELLOW);
+	vspr_set(1, 0, 0, 64, VCOL_LT_BLUE);
+	vspr_set(2, 0, 0, 84, VCOL_YELLOW);
+	vspr_set(3, 0, 0, 84, VCOL_LT_GREY);
+	vspr_set(4, 0, 0, 80, VCOL_YELLOW);
+	vspr_set(5, 0, 0, 80, VCOL_LT_BLUE);
+	vspr_set(6, 0, 0, 85, VCOL_YELLOW);
+	vspr_set(7, 0, 0, 85, VCOL_LT_BLUE);
+
+	vspr_set(8, 0, 0, 64, VCOL_YELLOW);
+	vspr_set(9, 0, 0, 64, VCOL_LT_BLUE);
+	vspr_set(10, 0, 0, 84, VCOL_YELLOW);
+	vspr_set(11, 0, 0, 84, VCOL_LT_GREY);
+	vspr_set(12, 0, 0, 80, VCOL_YELLOW);
+	vspr_set(13, 0, 0, 80, VCOL_LT_BLUE);
+	vspr_set(14, 0, 0, 85, VCOL_YELLOW);
+	vspr_set(15, 0, 0, 85, VCOL_LT_BLUE);	
+
+	rirq_build(&rirqbottom, 2);
+	rirq_write(&rirqbottom, 0, &vic.memptr, 0x12);
+	rirq_write(&rirqbottom, 1, &vic.color_back, VCOL_DARK_GREY);
+	rirq_set(9, 54 + 20 * 8, &rirqbottom);
+
+	rirq_build(&rirqtop, 3);
+	rirq_write(&rirqtop, 0, &vic.memptr, 0x02);
+	rirq_write(&rirqtop, 1, &vic.color_back, VCOL_BLACK);
+	rirq_call(&rirqtop, 2, irq_music);
+	rirq_set(10, 40, &rirqtop);
+
+	vspr_sort();
+	vspr_update();
+	rirq_sort();
+
+	vic.color_border = VCOL_DARK_GREY;
+	vic.color_back = VCOL_BLACK;
 }

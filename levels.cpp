@@ -51,3 +51,8 @@ const char LevelMap4[] = {
 };
 
 const LevelData	level4 = level_expand(LevelMap4, 7, 15, 38, 24);
+
+const LevelData	*	const level_all[4] = {
+	&level1, &level2, &level3, &level4
+};
+

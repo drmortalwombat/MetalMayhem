@@ -24,6 +24,8 @@ extern __striped struct Player
 
 }	players[2];
 
+extern char	score[2][6];
+
 extern unsigned	bolt_x, bolt_y;
 
 void bolt_init(void);

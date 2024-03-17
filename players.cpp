@@ -114,7 +114,7 @@ void player_check(PlayerID pi)
 
 		if (dx < 256 && dy < 256)
 		{
-			p.explosion = 64;
+			p.explosion = 114;
 			e.shot = 0;
 			e.dscore += 200;
 			sfx_explosion();
@@ -154,12 +154,12 @@ void collision_check(void)
 		{
 			if (!p.invulnerable)
 			{
-				p.explosion = 64;
+				p.explosion = 114;
 				sfx_explosion();
 			}
 			if (!e.invulnerable)
 			{
-				e.explosion = 64;
+				e.explosion = 114;
 				sfx_explosion();
 			}
 		}
@@ -461,7 +461,7 @@ void player_move(PlayerID pi)
 		{
 			player_init(pi);
 		}
-		else if (p.explosion == 48)
+		else if (p.explosion == 98)
 		{
 			if (p.flag)
 			{
@@ -626,8 +626,8 @@ void view_move(PlayerID pi, char phase)
 	view_sprite(pi, 0, (players[0].px >> 4) - p.vx, (players[0].py >> 4) - p.vy);
 	view_sprite(pi, 1, (players[1].px >> 4) - p.vx, (players[1].py >> 4) - p.vy);
 
-	if (players[0].explosion >= 48)
-		vspr_image(pi * 8    , 95 - ((players[0].explosion - 48) >> 1));
+	if (players[0].explosion >= 98)
+		vspr_image(pi * 8    , 95 - ((players[0].explosion - 98) >> 1));
 	else if (players[0].explosion)
 		vspr_hide(pi * 8);
 	else if (players[0].invulnerable && (phase & 2))
@@ -635,8 +635,8 @@ void view_move(PlayerID pi, char phase)
 	else
 		vspr_image(pi * 8    , 64 + (players[0].dir >> 2));
 
-	if (players[1].explosion >= 48)
-		vspr_image(pi * 8 + 1, 95 - ((players[1].explosion - 48) >> 1));
+	if (players[1].explosion >= 98)
+		vspr_image(pi * 8 + 1, 95 - ((players[1].explosion - 98) >> 1));
 	else if (players[1].explosion)
 		vspr_hide(pi * 8 + 1);
 	else if (players[1].invulnerable && (phase & 2))
