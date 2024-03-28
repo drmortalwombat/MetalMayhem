@@ -47,7 +47,7 @@ void player_init(PlayerID pi)
 	auto & p = players[pi];
 	p.px = p.hqx << 4;
 	p.py = p.hqy << 4;
-	p.dir = 40 + pi * 32;
+	p.dir = (40 + pi * 32) & 63;
 	p.dvx = 0;
 	p.dvy = 0;
 
@@ -365,7 +365,7 @@ void player_ai(PlayerID pi)
 
 	if (e.explosion)
 		p.jb = false;
-	else
+	else if (!e.invulnerable)
 	{
 		char	endir = e.dir >> 2;
 		char	rdir = (edir - dir) & 15;

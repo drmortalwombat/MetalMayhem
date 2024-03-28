@@ -2,7 +2,8 @@
 #include "display.h"
 #include "levels.h"
 
-char * const BackgroundMap = (char *)0xe000;
+char * const BackgroundMap0 = (char *)0xe000;
+char * const BackgroundMap1 = (char *)0xf000;
 
 const char level_row[48] = {
 	#for (i, 48)	42 * (i >> 3), 
@@ -98,21 +99,22 @@ void font_expand(char t, char x, char y)
 
 void map_expand(char pi, char x, char y)
 {
-	const char * sp = BackgroundMap + 64 * y + x;
+	const char * sp = BackgroundMap0;
 
 	char * dp = Screen;
-	char 	m = 0xe0;
 	if (pi)
 	{
 		dp += 22;
-		m = 0xf0;
+		sp = BackgroundMap1;
 	}
+
+	sp += 64 * y + x;
 
 	for(char y=0; y<20; y++)
 	{
 		#pragma unroll(full)
 		for(char x=0; x<18; x++)
-			dp[x] = sp[x] | m;
+			dp[x] = sp[x];
 
 		dp += 40;
 		sp += 64;
@@ -140,7 +142,8 @@ void back_init(void)
 			if (c3)
 				m |= 8;
 
-			BackgroundMap[64 * y + x] = m;
+			BackgroundMap0[64 * y + x] = m | 0xe0;
+			BackgroundMap1[64 * y + x] = m | 0xf0;
 		}
 	}
 }

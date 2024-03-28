@@ -39,5 +39,7 @@ void clock_put_char(char x, char ch);
 
 void display_game_frame(void);
 
+void display_unveil_frame(void);
+
 #pragma compile("display.cpp")
 

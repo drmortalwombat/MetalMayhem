@@ -18,6 +18,11 @@
 #include "playfield.h"
 #include "players.h"
 #include "intro.h"
+#include "gameover.h"
+
+#pragma heapsize(0)
+
+#pragma region( main, 0x0a00, 0x9000, , , {code, data, bss, heap, stack} )
 
 #pragma region( zeropage, 0x80, 0xfc, , , {} )
 
@@ -49,6 +54,7 @@ void level_init(const LevelData * level)
 	level_active = level;
 
 	back_init();
+	display_game_frame();
 
 	player_init_hq(PLAYER_0, level->x0 * 8 + 24, level->y0 * 8 + 50);
 	player_init_hq(PLAYER_1, level->x1 * 8 + 24, level->y1 * 8 + 50);
@@ -58,10 +64,10 @@ void level_init(const LevelData * level)
 	player_init(PLAYER_1);
 	bolt_init();
 
-	display_game_frame();
-
 	view_init(PLAYER_0);
 	view_init(PLAYER_1);
+
+	display_unveil_frame();
 }
 
 void status_text(const char * text, char color)
@@ -81,50 +87,41 @@ void status_text(const char * text, char color)
 
 void level_ready(void)
 {
-	status_text("READY", VCOL_YELLOW);
-	for(char i=0; i<50; i++)
-		vic_waitFrame();
-	status_text("SET",   VCOL_YELLOW);
-	for(char i=0; i<50; i++)
-		vic_waitFrame();
-	status_text("FIGHT", VCOL_WHITE);
-	for(char i=0; i<50; i++)
-		vic_waitFrame();
-}
-
-void level_complete(void)
-{
-	while (players[0].dscore || players[1].dscore)
+	for(char i=0; i<150; i++)
 	{
-		player_check_score(PLAYER_0, 255);
-		player_check_score(PLAYER_1, 255);		
-		vic_waitFrame();
-	}
+		if (i == 0)
+			status_text("READY", VCOL_YELLOW);
+		else if (i == 50)
+			status_text("SET",   VCOL_YELLOW);
+		else if (i == 100)
+			status_text("FIGHT", VCOL_WHITE);
 
-	char i = 0;
-	while (i < 5 && score[0][i] == score[1][i])
-		i++;
+		vspr_sort();
+		rirq_wait();
 
-	if (i == 5)
-	{
-		status_text("GAME OVER", VCOL_LT_GREY);
-	}
-	else if (score[0][i] > score[1][i])
-	{
-		status_text("YELLOW TANK WINS", VCOL_YELLOW);
-	}
-	else
-	{
-		status_text("BLUE TANK WINS", VCOL_LT_BLUE);
-	}
+		vspr_update();
+		rirq_sort();
 
-	for(char i=0; i<200; i++)
-		vic_waitFrame();
+		view_move(PLAYER_0, i);
+		view_move(PLAYER_1, i);
+	}
 }
 
 int main(void)
 {
 	cia_init();
+
+	system_ntsc = true;
+	vic_waitTop();
+	vic_waitBottom();
+	while (vic.ctrl1 & VIC_CTRL1_RST8)
+	{
+		if (vic.raster > 20)
+		{
+			system_ntsc = false;
+			break;
+		}
+	}
 
 	// Install memory trampoline to ensure system
 	// keeps running when playing with the PLA
@@ -133,13 +130,31 @@ int main(void)
 	display_init();
 
 	music_active = true;	
-	music_init(TUNE_GAME_3);
-	music_patch_voice3(false);
+	intro_select_level_index = 0;
+	intro_select_level = level_all[0];
 
 	for(;;)
 	{
 		intro_init();
 
+		music_active = false;
+		music_patch_voice3(false);
+		switch (intro_select_level_index)
+		{
+		case 0:
+			music_init(TUNE_GAME_1);
+			break;
+		case 1:
+			music_init(TUNE_GAME_2);
+			break;
+		case 2:
+			music_init(TUNE_GAME_3);
+			break;
+		case 3:
+			music_init(TUNE_GAME_4);
+			break;
+		}
+		music_active = true;
 
 		level_init(intro_select_level);
 
@@ -150,11 +165,13 @@ int main(void)
 		sid.fmodevol = 15;
 
 		clock_cy = clock_sec = 0;
+		memset(Color + 23 * 40, 0x01, 40);
+		memset(Color + 24 * 40, 0x0f, 40);
 		clock_show();
 
 		char	phase = 0;
 		char	bphase = 0;
-		while (clock_cy < 152)
+		while (clock_cy < 144)
 		{
 			view_move(PLAYER_0, phase);
 			view_move(PLAYER_1, phase);
@@ -164,7 +181,7 @@ int main(void)
 			if (phase & 1)
 			{
 				clock_sec++;
-				if (clock_sec == 5)
+				if (clock_sec == 50)
 				{
 					clock_cy++;
 					clock_sec = 0;
@@ -174,17 +191,7 @@ int main(void)
 				keyb_poll();
 
 				if (keyb_key == (KSCAN_STOP | KSCAN_QUAL_DOWN))
-				{
-					clock_cy = clock_sec = 0;
-					clock_show();
-					player_init_flag(PLAYER_0);
-					player_init_flag(PLAYER_1);
-					player_init(PLAYER_0);
-					player_init(PLAYER_1);
-					bolt_init();
-
-					score_init();
-				}
+					break;
 			}
 
 			phase++;

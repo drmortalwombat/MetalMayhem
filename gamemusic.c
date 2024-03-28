@@ -4,12 +4,12 @@
 
 #pragma section( music, 0)
 
-#pragma region( music, 0xa000, 0xc000, , , {music} )
+#pragma region( music, 0x9000, 0xc000, , , {music} )
 
 #pragma data(music)
 
 __export char music[] = {
-	#embed 0x2000 0x7e "BattleTanks-3.sid" 
+	#embed 0x3000 0x7e "BattleTanks-7.2.sid" 
 };
 
 #pragma data(data)
@@ -21,7 +21,7 @@ void music_init(Tune tune)
 	__asm
 	{
 		lda		tune
-		jsr		$a000
+		jsr		$9000
 	}
 }
 
@@ -29,10 +29,19 @@ void music_queue(Tune tune)
 {
 }
 
+void music_fade(void)
+{
+	for(char i=0; i<15; i+=5)
+	{
+		sid.fmodevol = 15 - i;
+		vic_waitFrame();
+	}
+
+}
+
 void music_play(void)
 {
-#if 0
-	if (ntsc)
+	if (system_ntsc)
 	{
 		music_throttle++;
 		if (music_throttle == 6)
@@ -41,19 +50,19 @@ void music_play(void)
 			return;
 		}
 	}
-#endif
+
 	if (music_active)
 	{
 		__asm
 		{
-			jsr		$a003
+			jsr		$9003
 		}
 	}
 }
 
 void music_patch_voice3(bool enable)
 {
-	*(char *)0xa157 = enable ? 0x20 : 0x4c;
+	*(char *)0x916a = enable ? 0x20 : 0x4c;
 }
 
 void music_toggle(void)
