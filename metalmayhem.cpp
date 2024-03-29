@@ -20,11 +20,15 @@
 #include "intro.h"
 #include "gameover.h"
 
+// Main region shortened to make space for music
+
 #pragma heapsize(0)
 
 #pragma region( main, 0x0a00, 0x9000, , , {code, data, bss, heap, stack} )
 
 #pragma region( zeropage, 0x80, 0xfc, , , {} )
+
+// Interrupt sound routine invokes music and effects
 
 __interrupt void irq_music(void)
 {
@@ -34,9 +38,13 @@ __interrupt void irq_music(void)
 
 char	clock_cy, clock_sec;
 
+// Show the clock gauge at the bottom, could use some optimization
 void clock_show(void)
 {
+	// Left char
 	clock_put_char(0, 1);	
+
+	// Center chars
 	for(char x=0; x<19; x++)
 	{
 		if (x < (clock_cy >> 3))
@@ -46,6 +54,8 @@ void clock_show(void)
 		else
 			clock_put_char(x + 1, 5);
 	}
+
+	// Right char
 	clock_put_char(19, 4);
 }
 
@@ -70,6 +80,7 @@ void level_init(const LevelData * level)
 	display_unveil_frame();
 }
 
+// Show centered status text in bottom line
 void status_text(const char * text, char color)
 {
 	char n = 0;
@@ -85,6 +96,7 @@ void status_text(const char * text, char color)
 		clock_put_char(i, ' ');
 }
 
+// Level ready count down
 void level_ready(void)
 {
 	for(char i=0; i<150; i++)
@@ -110,6 +122,8 @@ void level_ready(void)
 int main(void)
 {
 	cia_init();
+
+	// Check for video norm PAL or NTSC
 
 	system_ntsc = true;
 	vic_waitTop();
@@ -137,6 +151,7 @@ int main(void)
 	{
 		intro_init();
 
+		// Init music based on selected level
 		music_active = false;
 		music_patch_voice3(false);
 		switch (intro_select_level_index)
@@ -156,6 +171,7 @@ int main(void)
 		}
 		music_active = true;
 
+		// Init level
 		level_init(intro_select_level);
 
 		score_init();
@@ -164,19 +180,29 @@ int main(void)
 
 		sid.fmodevol = 15;
 
+		// Clock color
 		clock_cy = clock_sec = 0;
 		memset(Color + 23 * 40, 0x01, 40);
 		memset(Color + 24 * 40, 0x0f, 40);
 		clock_show();
 
+		// Main game loop until clock runs out.  Loop iteration is synchronized
+		// with raster beam
+
 		char	phase = 0;
 		char	bphase = 0;
 		while (clock_cy < 144)
 		{
+			// Advance sprites and scroll register
+
 			view_move(PLAYER_0, phase);
 			view_move(PLAYER_1, phase);
 
+			// Sort multiplexed sprite
+
 			vspr_sort();
+
+			// Odd phase is used for clock and keyboard
 
 			if (phase & 1)
 			{
@@ -196,16 +222,24 @@ int main(void)
 
 			phase++;
 
+			// Wait for end of display area
+
 			rirq_wait();
 
 			vspr_update();
 			rirq_sort();
+
+			// Update displays for both players.  Use a phase offset of four
+			// for the second player to ensure not both are scrolling the
+			// char view at the same frame
 
 			view_scroll(PLAYER_0, phase & 7);
 			view_scroll(PLAYER_1, (phase + 4) & 7);
 
 			view_redraw(PLAYER_0, phase & 7);
 			view_redraw(PLAYER_1, (phase + 4) & 7);
+
+			// Animate flag and bolt
 
 			char flgani = 80 + ((phase >> 2) & 3); 
 			char boltani = 96 + (bphase >> 2);
@@ -221,10 +255,12 @@ int main(void)
 			vspr_image(3, boltani);
 			vspr_image(11, boltani);
 
+			// Check collisions
 			player_check(PLAYER_0);
 			player_check(PLAYER_1);
 			collision_check();
 
+			// Control players by joystick or AI
 			player_control(PLAYER_0);
 			if (intro_select_players)
 				player_control(PLAYER_1);
@@ -239,6 +275,7 @@ int main(void)
 			player_move(PLAYER_1);
 	//		vic.color_border = VCOL_DARK_GREY;
 
+			// Update score display
 			player_check_score(PLAYER_0, phase);
 			player_check_score(PLAYER_1, phase);
 		}

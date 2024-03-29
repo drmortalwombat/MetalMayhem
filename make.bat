@@ -1,1 +1,1 @@
-oscar64 -g blasto.cpp -xz -Oz
+oscar64 -g metalmayhem.cpp -xz -Oz -O2

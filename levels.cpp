@@ -2,6 +2,9 @@
 
 const LevelData	*	level_active;
 
+// constexpr function to convert the level data from byte maps into bitmaps, executed
+// during compile
+
 constexpr LevelData level_expand(const char * d, char x0, char y0, char x1, char y1)
 {
 	LevelData	ld;
@@ -52,6 +55,7 @@ const char LevelMap4[] = {
 
 const LevelData	level4 = level_expand(LevelMap4, 7, 15, 38, 24);
 
+// The four levels
 const LevelData	*	const level_all[4] = {
 	&level1, &level2, &level3, &level4
 };

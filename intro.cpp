@@ -10,13 +10,20 @@ const char IntoSpriteImages[] = {
 	#embed spd_sprites lzo "introtanks.spd"
 };
 
+// Move the multiplexed sprites for the two intro tanks
+
 void intro_tank(char i, int x, char y, char a)
 {
+	// Sprite index
 	char si = i * 6;
+
+	// Sprite animation frame
 	char sa = 128 + a * 6;
 
+	// Sprite color
 	char sc = i ? VCOL_YELLOW : VCOL_LT_BLUE;
 
+	// Move 3x2 sprite block
 	vspr_set(si + 0, x     , y     , sa + 0, sc);
 	vspr_set(si + 1, x + 24, y     , sa + 1, sc);
 	vspr_set(si + 2, x + 48, y     , sa + 2, sc);
@@ -63,10 +70,14 @@ unsigned	intro_scrp;
 
 void intro_scroll(void)
 {
-	intro_scrx++;
+	// Advance scroll position by one pixel
+	intro_scrx++;	
 	rirq_data(&rirqbottom, 0, 7 - (intro_scrx & 7));
+
+	// Crossed an 8 pixel char boundary?
 	if (!(intro_scrx & 7))
 	{
+		// Move two bottom lines to the left
 		for(char i=0; i<39; i++)
 		{
 			Screen[23 * 40 + i] = Screen[23 * 40 + 1 + i];
@@ -75,9 +86,11 @@ void intro_scroll(void)
 			Color[24 * 40 + i] = Color[24 * 40 + 1 + i];
 		}
 
+		// Get next char of scroll text
 		char ch = ScrollText[intro_scrp];
 		while (ch < 32)
 		{
+			// Interpret control codes and end of text
 			switch (ch)
 			{
 				case 0:
@@ -108,9 +121,11 @@ void intro_scroll(void)
 			ch = ScrollText[++intro_scrp];
 		}
 
+		// Put color for new glyph
 		Color[23 * 40 + 39] = intro_c0;
 		Color[24 * 40 + 39] = intro_c1;
 
+		// Put left or right two chars for new glyph
 		if (intro_scrx & 8)
 		{
 			Screen[23 * 40 + 39] = NumberTiles[4 * ch + 1];
@@ -125,29 +140,36 @@ void intro_scroll(void)
 	}
 }
 
+// Expand a map image into four dynamic sprites
 void intro_map(char mi)
 {
 	const LevelData	*	lvl = level_all[mi];
 
+	// Loop over 21 rows
 	for(char i=0; i<21; i++)
 	{
+		// Top left
 		DynSprites[0 * 64 + 3 * i + 0] = lvl->map[i + 0 * 42];
 		DynSprites[0 * 64 + 3 * i + 1] = lvl->map[i + 1 * 42];
 		DynSprites[0 * 64 + 3 * i + 2] = lvl->map[i + 2 * 42];
 
+		// Top right
 		DynSprites[1 * 64 + 3 * i + 0] = lvl->map[i + 3 * 42];
 		DynSprites[1 * 64 + 3 * i + 1] = lvl->map[i + 4 * 42];
 		DynSprites[1 * 64 + 3 * i + 2] = lvl->map[i + 5 * 42];
 
+		// Bottom left
 		DynSprites[2 * 64 + 3 * i + 0] = lvl->map[i + 0 * 42 + 21];
 		DynSprites[2 * 64 + 3 * i + 1] = lvl->map[i + 1 * 42 + 21];
 		DynSprites[2 * 64 + 3 * i + 2] = lvl->map[i + 2 * 42 + 21];
 
+		// Bottom right
 		DynSprites[3 * 64 + 3 * i + 0] = lvl->map[i + 3 * 42 + 21];
 		DynSprites[3 * 64 + 3 * i + 1] = lvl->map[i + 4 * 42 + 21];
 		DynSprites[3 * 64 + 3 * i + 2] = lvl->map[i + 5 * 42 + 21];
 	}
 
+	// Set the sprites
 	vspr_set(12, 280, 142, 16, VCOL_ORANGE);
 	vspr_set(13, 304, 142, 17, VCOL_ORANGE);
 	vspr_set(14, 280, 163, 18, VCOL_ORANGE);
@@ -161,15 +183,19 @@ void intro_anim(void)
 {
 	signed char pjx = 0, pjy = 0;
 
+	// Position for light effect in game title
 	char tx = 6;
 
 	for(;;)
 	{		
+		// Loop over tank sprite position
 		for(int i=-48; i<344; i++)
 		{
+			// Move tanks
 			intro_tank(0, 296 - i,  54, 0 + ((i >> 2) & 3));
 			intro_tank(1, i,       190, 4 + ((i >> 2) & 3));
 
+			// Move light over game title
 			Color[40 * 7 + tx + 0] = VCOL_MED_GREY;
 			Color[40 * 8 + tx + 0] = VCOL_DARK_GREY;
 
@@ -195,7 +221,10 @@ void intro_anim(void)
 			if (tx == 34)
 				tx = 6;
 
+			// Poll joystick
 			joy_poll(0);
+
+			// Select map using left and right
 			if (joyx[0])			
 			{			
 				if (!pjx)	
@@ -208,6 +237,7 @@ void intro_anim(void)
 			else
 				pjx = 0;
 
+			// Select versus mode using up and down
 			if (joyy[0] < 0)
 			{
 				if (!intro_select_players)
@@ -225,6 +255,7 @@ void intro_anim(void)
 				}				
 			}
 
+			// End on button press
 			if (joyb[0])
 				return;
 
@@ -243,11 +274,13 @@ void intro_anim(void)
 
 void intro_init(void)
 {
+	// Switch to intro music
 	music_active = false;
 	music_patch_voice3(true);
 	music_init(TUNE_INTRO);
 	music_active = true;
 
+	// Use second screen for tank animation sprites
 	memset(Screen2, 0, 1000);
 
 	oscar_expand_lzo(IntroSprites, IntoSpriteImages);
@@ -256,6 +289,7 @@ void intro_init(void)
 
 	rirq_wait();
 
+	// Prepare top and bottom irqs for scroll text
 	rirq_build(&rirqbottom, 1);
 	rirq_write(&rirqbottom, 0, &vic.ctrl2, 0x00);
 	rirq_set(9, 50 + 22 * 8 + 7, &rirqbottom);
@@ -269,15 +303,20 @@ void intro_init(void)
 	vic.color_back = VCOL_BLACK;
 	vic.color_border = VCOL_BLACK;
 
+	// Hide all sprites
 	for(char i=0; i<16; i++)
 		vspr_hide(i);
 
 	intro_scrx = 0;
 	intro_scrp = 0;
 
+	// Show current selected game map
 	intro_map(intro_select_level_index);
 
+	// Show game title
 	intro_string(0, 7, P"*** METAL MAYHEM ***", VCOL_MED_GREY, VCOL_DARK_GREY);
+
+	// Some color bling bling for the stars
 	for(char i=0; i<3; i++)
 	{
 		Color[40 * 7 + 2 * i +  0] = VCOL_WHITE;
@@ -290,6 +329,7 @@ void intro_init(void)
 	}
 
 
+	// Show game mode and controls
 	intro_string(4, 11, P"PLAYER", VCOL_YELLOW, VCOL_ORANGE);
 	intro_string(8, 13, P"VS", VCOL_LT_GREY, VCOL_MED_GREY);
 	if (intro_select_players)
@@ -303,6 +343,7 @@ void intro_init(void)
 	intro_char(30, 13, P'<', VCOL_LT_GREY, VCOL_MED_GREY);
 	intro_char(38, 13, P'>', VCOL_LT_GREY, VCOL_MED_GREY);
 
+	// Draw lines for tanks to drive on
 	for (char i=0; i<20; i++)
 	{
 		intro_char(2 * i, 4, 20 + (rand() & 3), VCOL_BROWN, VCOL_BROWN);
@@ -313,6 +354,7 @@ void intro_init(void)
 
 	intro_select_level = level_all[intro_select_level_index];
 
+	// Fade to white
 	static const char bcolors[] = {VCOL_DARK_GREY, VCOL_MED_GREY, VCOL_LT_GREY, VCOL_YELLOW, VCOL_WHITE};
 
 	for(char i=0; i<5; i++)
@@ -325,6 +367,7 @@ void intro_init(void)
 		rirq_sort();
 	}
 
+	// Turn all things off
 	rirq_clear(9);
 	rirq_clear(10);
 	for(char i=0; i<16; i++)
@@ -339,6 +382,7 @@ void intro_init(void)
 
 	memset(Screen, 0, 1000);
 
+	// And back to dark grey
 	for(char i=5; i>0; i--)
 	{
 		vic.color_border = bcolors[i - 1];
